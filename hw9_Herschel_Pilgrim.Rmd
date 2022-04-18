@@ -1,0 +1,103 @@
+---
+title: "HW 9 "
+author: "Herschel & Pilgrim"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load-pkg, message=FALSE, include=FALSE}
+library(psych)
+library(ggplot2)  # for plots
+library(magrittr)  # for `%>%` operator
+#library(here)
+#library(readxl)  # for reading excel files
+library(modelsummary)  # for summarizing data
+library(rstan)
+rstan_options(auto_write = TRUE)  # save compiled STAN object
+options(mc.cores = 2)  # use two cores
+library(posterior)
+library(bayesplot)
+theme_set(theme_classic() +
+    theme(panel.grid.major.y = element_line(color = "grey92")))
+library(brms)
+
+```
+
+# Research Question
+
+> Does Self-rated health (SRH) at baseline predict dementia risk measured by a latent dementia index at the conclusion of the study?
+
+# Variables
+
+- `base_srh`: self-rated health at baseline measured on a 1-3 Likert scale in response to the question: "How do you rate your overall health?" 1 = "good," 2 = "reasonable," 3 = "bad."
+- `LDI_HARM`: Continuous latent factor that accounts for common variance in memory, cognitive ability and functional ability measures. Ranges from 1-11 in the sample, lower scores indicate poorer performance on dementia-indicative measures.
+
+```{r beauty, include=FALSE}
+health<-read.csv("hw9.csv")
+```
+
+## Variable Summary
+
+```{r summ-var, echo=FALSE}
+datasummary(srh2 + LDI_HARM ~ N + Mean + SD + Min + Max + Histogram, 
+            data = health,)
+```
+
+## Model
+
+Model:
+$$
+  \begin{aligned}
+    LDI_i & \sim N(\mu_i, \sigma) \\
+    \mu_i & = \eta_i \\
+    \eta_i & = \beta_0 + \beta_1srh_i
+  \end{aligned}
+$$
+
+Prior:
+$$
+  \begin{aligned}
+    \beta_0 & \sim N(7, 3) \\
+    \beta_1 & \sim N(0, 2) \\
+    \sigma & \sim t^+_4(0,3)
+  \end{aligned}
+$$
+# Run Model
+
+We used 4 chains, each with 4,000 iterations (first 2,000 as warm-ups). 
+
+```{r m1, include=FALSE}
+m1<-brm(LDI_HARM~srh2,
+        family = gaussian("identity"),
+        data = health,
+        prior = prior(normal(7,3), class = "Intercept")+
+                prior(normal(0,2), class = "b", coef = "srh2")+
+                prior(student_t(4,0,3), class = "sigma"),
+        iter = 4000)
+```
+
+## Results
+
+As shown in the graphs below, the chains mixed well.
+
+```{r rank-hist-m1, echo=FALSE}
+mcmc_rank_hist(m1, pars = c("b_Intercept", "b_srh2", "sigma"))
+mcmc_trace(m1, pars = c("b_Intercept", "b_srh2", "sigma"))
+```
+
+The following graph shows the posterior distributions of $\beta_0$, $\beta_1$, and $\sigma$. 
+
+```{r summ-m1, echo=FALSE}
+print(m1, statistic = "conf.int")
+mcmc_dens(m1, pars = c("b_Intercept", "b_srh2", "sigma"))
+```
+
+The results show higher SRH scores predict lower LDI with with the posterior mean of the regression parameter as -0.84 and a 90% CI of [-1.20,-0.49]. This tells us that individuals who report a lower self-rated health score at baseline had higher dementia scores (worse dementia outcomes) at the end of the study.

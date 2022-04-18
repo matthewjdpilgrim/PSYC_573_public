@@ -1,0 +1,170 @@
+---
+title: "Homework 8"
+author: "Matt Pilgrim"
+date: "11/04/2022"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(dagitty)  # for drawing DAGs 
+library(tidygraph)
+library(ggdag)
+library(rstan)
+rstan_options(auto_write = TRUE)  # save compiled Stan object
+library(brms)  # simplify fitting Stan GLM models
+library(posterior)  # for summarizing draws
+library(bayesplot)  # for plotting
+library(modelsummary)  # table for brms
+theme_set(theme_classic() +
+    theme(panel.grid.major.y = element_line(color = "grey92")))
+library(mediation)
+library(estimatr)
+library(psych)
+
+data(jobs, package = "mediation")
+```
+
+
+Question 1. A.
+
+The "treat" variable indicates participation in the JOBS II intervention program, a combination of job-search skills seminars. A value of 1 indicates random assignment to participate, while a value of 0 indicates random assignment to not participate in the intervention.
+
+
+Question 1. B.
+
+The "jobs_seek" variable is a continuous variable  "measuring the level of job-search self-efficacy with values from 1 to 5." It is considered the mediator variable.
+
+The "depress2" variable is a "measure of depression symptoms post-treatment"
+
+
+Question 1. C.
+
+```{r Q1C}
+datasummary_balance(econ_hard+ depress1+age+educ+job_seek~treat, data = jobs, output = "markdown")
+```
+
+
+Question 2. A.
+```{r Q2A}
+dag1 <- dagitty(
+    "dag{
+      Treat -> Dep; Treat ->JS ; JS -> Dep;
+    }"
+)
+coordinates(dag1) <- list(x = c(Treat = 0, Dep = 1, JS = .5),
+                          y = c(Treat = 0, Dep = 0, JS = 1))
+ggdag(dag1) + theme_dag()
+```
+
+Question 2. B.
+
+$$
+  \begin{aligned}
+    js_i & \sim N(\mu_i^j,\sigma^j) \\
+    \mu_i^j & = \beta_0^j + \beta_1treat_i \\
+    dep_i & \sim N(\mu_i^d, \sigma^d) \\
+    logit(\mu_i^d)& \sim \eta_i \\
+    \eta_i & = \beta_0^d + \beta_2treat_i + \beta_3js_i  \\
+  \end{aligned}
+$$
+
+```{r Q2B}
+  m_med <- brm(
+    # Two equations for two outcomes
+    bf(depress2 ~ treat + job_seek) +
+        bf(job_seek ~ treat) +
+        set_rescor(FALSE),
+    # A list of two family arguments for two outcomes
+    family =  gaussian("identity"),
+    data = jobs,
+    prior = prior(normal(0, 1), class = "b", resp = "jobseek") +
+        prior(student_t(4, 0, 2), class = "sigma", resp = "jobseek") +
+        prior(normal(0, 1), class = "b", resp = "depress2"),
+    seed = 1338,
+    iter = 4000
+)
+print(m_med)
+
+pp_check(m_med, resp = "jobseek") # density for mediator
+pp_check(m_med, resp = "depress2") # density for outcome
+# Prediction error for `depress2` against `job_seek`.
+# There should be no clear pattern if the model fit the data
+# reasonably well
+pp_check(m_med, type = "error_scatter_avg_vs_x", resp = "depress2",
+x = "job_seek")
+
+```
+
+Posterior predictive checks would indicate that our model may not be fitting the data very well. Density overlays of simulated data on real data for both job_seek and depress two suggest a misfit. Job_seek shows a somewhat bi-modal distribution poorly matched by simulated data, while depress2 shows a right skewed distribution also poorly matched by simulated data. In addition, there is a fairly clear linear increase in the prediction error for depress2 for increasing values of job_seek.
+
+Question 2. C.
+```{r Q2C}
+cond_df1 <- data.frame(treat = c(0, 1), job_seek = c(0,1))
+
+cond_df1 %>%
+    bind_cols(
+        fitted(m_med, newdata = cond_df1)[ , , "jobseek"]
+    ) 
+```
+
+Question 2. D.
+```{r Q2D}
+cond_df2 <- data.frame(treat = c(0, 0), job_seek = c(4,4.07))
+
+cond_df2 %>%
+    bind_cols(
+        fitted(m_med, newdata = cond_df2)[ , , "depress2"]
+    )
+```
+
+The difference in the estimates for person A and C is approximately .015
+
+Question 2. E.
+```{r Q2E}
+post_draws <-as.data.frame(m_med)
+# Simulated job_seek with treat=0
+sim_jobseek0 <- rnorm(post_draws$b_jobseek_Intercept,
+                      mean= post_draws$b_jobseek_Intercept,
+                      sd=post_draws$sigma_jobseek)
+sim_jobseek1<- sim_jobseek0 + post_draws$b_jobseek_treat
+#predicted depression for treat=0, jobseek=sim_jobseek0
+pred_depress0<-plogis(
+  post_draws$b_depress2_Intercept +
+    post_draws$b_depress2_job_seek*sim_jobseek0)
+#Predicted depression for treat=0, jobseek= sim_jobseek1
+pred_depress1<-plogis(post_draws$b_depress2_Intercept +
+                        post_draws$b_depress2_job_seek*sim_jobseek1)
+
+#Natural Indirect Effect
+nie <- pred_depress1 - pred_depress0
+as_draws_array(list(nie=nie)) %>%
+  mcmc_areas(bw="SJ")
+summary(nie)
+
+
+post_draws <- as.data.frame(m_med)
+post_draws$indirect <- (post_draws$b_depress2_treat*post_draws$b_depress2_job_seek)
+psych::describe(post_draws$indirect)
+
+summary(m_med)
+
+ie<-0.07*-0.22 
+ie 
+
+```
+
+The values of the indirect effects computer from the two approaches appear to be the same.
+
+Both are looking at indirect effects--and the values are the same.
+
+
+
+
