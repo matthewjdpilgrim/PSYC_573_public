@@ -1,0 +1,210 @@
+---
+title: "The association between subjtive health and a latent dementia indicator"
+author: "Matt Pilgrim & Ellen Herschel"
+date: "17/03/2022"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+#set up markdown and libraries
+knitr::opts_chunk$set(echo = TRUE)
+
+library(psych)
+library(ggplot2)  # for plots
+library(magrittr)  # for `%>%` operator
+#library(here)
+#library(readxl)  # for reading excel files
+library(modelsummary)  # for summarizing data
+library(rstan)
+rstan_options(auto_write = TRUE)  # save compiled STAN object
+options(mc.cores = 2)  # use two cores
+library(posterior)
+library(bayesplot)
+theme_set(theme_classic() +
+    theme(panel.grid.major.y = element_line(color = "grey92")))
+library(brms)
+```
+
+
+```{r data, echo=FALSE}
+#read in data
+setwd("~/Academics/USC_PHD/Courses/Year_2/PSYC_573/R_573/final_project")
+health<-read.csv("final_project_573.csv")
+```
+
+```{r data visualization}
+#visual data, project demographics table
+datasummary(srh2 + comp2 + act2 + LDI_HARM + srh_age + cirs + isced + sex ~ N + Mean + SD + Min + Max, 
+            data = health 
+          #  output = "markdown"
+            )
+
+ggplot(health,aes(srh2))+
+  geom_histogram(binwidth = .15)
+ 
+ggplot(health,aes(srh2))+
+  geom_density()
+
+ggplot(health,aes(comp2))+
+  geom_histogram(binwidth = .15)
+ 
+ggplot(health,aes(comp2))+
+  geom_density()
+
+ggplot(health,aes(act2))+
+  geom_histogram(binwidth = .15)
+ 
+ggplot(health,aes(act2))+
+  geom_density()
+
+ggplot(health,aes(LDI_HARM))+
+  geom_histogram(binwidth = .5)
+ 
+ggplot(health,aes(LDI_HARM))+
+  geom_density()
+
+ggplot(health, aes(x = srh2, y = LDI_HARM))+
+  geom_jitter()+
+  geom_smooth(method = lm)
+
+ggplot(health, aes(x = comp2, y = LDI_HARM))+
+  geom_jitter()+
+  geom_smooth(method = lm)
+
+ggplot(health, aes(x = act2, y = LDI_HARM))+
+  geom_jitter()+
+  geom_smooth(method = lm)
+```
+
+Model1:
+$$
+  \begin{aligned}
+    LDI_i & \sim N(\mu_i, \sigma) \\
+    \mu_i & = \eta_i \\
+    \eta_i & = \beta_0 + \beta_1srh_i
+  \end{aligned}
+$$
+
+Prior1:
+$$
+  \begin{aligned}
+    \beta_0 & \sim N(7, 3) \\
+    \beta_1 & \sim N(-.25, 3) \\
+    \sigma & \sim t^+_4(0,3)
+  \end{aligned}
+$$
+Model2:
+$$
+  \begin{aligned}
+    LDI_i & \sim N(\mu_i, \sigma) \\
+    \mu_i & = \eta_i \\
+    \eta_i & = \beta_0 + \beta_1comp_i
+  \end{aligned}
+$$
+Prior2:
+$$
+  \begin{aligned}
+    \beta_0 & \sim N(7, 3) \\
+    \beta_1 & \sim N(0, 4) \\
+    \sigma & \sim t^+_4(0,3)
+  \end{aligned}
+$$
+
+Model3:
+$$
+  \begin{aligned}
+    LDI_i & \sim N(\mu_i, \sigma) \\
+    \mu_i & = \eta_i \\
+    \eta_i & = \beta_0 + \beta_1act_i
+  \end{aligned}
+$$
+Prior3:
+$$
+  \begin{aligned}
+    \beta_0 & \sim N(7, 3) \\
+    \beta_1 & \sim N(0, 4) \\
+    \sigma & \sim t^+_4(0,3)
+  \end{aligned}
+$$
+
+```{r models, echo=FALSE}
+msrh.1<-brm(LDI_HARM~srh2,
+        family = gaussian("identity"),
+        data = health,
+        prior = prior(normal(7,3), class = "Intercept")+
+                prior(normal(-.25,3), class = "b", coef = "srh2")+
+                prior(student_t(4,0,3), class = "sigma"),
+        sample_prior = TRUE,
+        iter = 4000)
+
+mcomp.1<-brm(LDI_HARM~comp2,
+        family = gaussian("identity"),
+        data = health,
+        prior = prior(normal(7,3), class = "Intercept")+
+                prior(normal(-.25,3), class = "b", coef = "comp2")+
+                prior(student_t(4,0,3), class = "sigma"),
+        sample_prior = TRUE,
+        iter = 4000)
+
+mact.1<-brm(LDI_HARM~act2,
+        family = gaussian("identity"),
+        data = health,
+        prior = prior(normal(7,3), class = "Intercept")+
+                prior(normal(-.25,3), class = "b", coef = "act2")+
+                prior(student_t(4,0,3), class = "sigma"),
+        sample_prior = TRUE,
+        iter = 4000)
+```
+
+```{r convergence, echo = FALSE}
+mcmc_rank_hist(msrh.1, pars = c("b_Intercept", "b_srh2", "sigma"))
+mcmc_trace(msrh.1, pars = c("b_Intercept", "b_srh2", "sigma"))
+
+mcmc_rank_hist(mcomp.1, pars = c("b_Intercept", "b_comp2", "sigma"))
+mcmc_trace(mcomp.1, pars = c("b_Intercept", "b_comp2", "sigma"))
+
+mcmc_rank_hist(mact.1, pars = c("b_Intercept", "b_act2", "sigma"))
+mcmc_trace(mact.1, pars = c("b_Intercept", "b_act2", "sigma"))
+```
+```{r ppc, echo = FALSE}
+y.msrh.1<-health$LDI_HARM
+yrep.msrh.1 <- posterior_predict(msrh.1)
+ppc_dens_overlay(y.msrh.1, yrep.msrh.1[1:50, ])
+pp_check(msrh.1, type = "intervals", x = "srh2")
+
+h_Bsrh<-hypothesis(msrh.1, hypothesis = c("srh2 = -.25"))
+plot(h_Bsrh)
+
+y.mcomp.1<-health$LDI_HARM
+yrep.mcomp.1 <- posterior_predict(mcomp.1)
+ppc_dens_overlay(y.mcomp.1, yrep.mcomp.1[1:50, ])
+pp_check(mcomp.1, type = "intervals", x = "comp2")
+
+h_Bcomp<-hypothesis(mcomp.1, hypothesis = c("comp2 = 0"))
+plot(h_Bcomp)
+
+y.mact.1<-health$LDI_HARM
+yrep.mact.1 <- posterior_predict(mact.1)
+ppc_dens_overlay(y.mact.1, yrep.mact.1[1:50, ])
+pp_check(mact.1, type = "intervals", x = "act2")
+
+h_Bact<-hypothesis(mact.1, hypothesis = c("act2 = 0"))
+plot(h_Bact)
+```
+
+```{r posterior, echo = FALSE}
+print(msrh.1, statistic = "conf.int")
+mcmc_dens(msrh.1, pars = c("b_Intercept", "b_srh2", "sigma"))
+
+print(mcomp.1, statistic = "conf.int")
+mcmc_dens(mcomp.1, pars = c("b_Intercept", "b_comp2", "sigma"))
+
+print(mact.1, statistic = "conf.int")
+mcmc_dens(mact.1, pars = c("b_Intercept", "b_act2", "sigma"))
+```
+
